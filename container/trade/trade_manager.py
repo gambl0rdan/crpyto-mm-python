@@ -30,6 +30,13 @@ class Control:
         raise NotImplementedError()
 
 
+class MaxOrderControl(Control):
+    MAX = 6
+
+    def validate(self, order_count, *args, **kwargs):
+        if order_count > self.MAX:
+            return False, f"Order count {order_count} greater than max {self.MAX}"
+        return True, None
 class TradeSizeControl(Control):
 
     def __init__(self, balances):
@@ -44,22 +51,22 @@ class TradeSizeControl(Control):
             buy_ccy, sell_ccy = symbol.split('-')
         else:
             buy_ccy, sell_ccy = reversed(symbol.split('-'))
-
+        reason = f"Trade size or balance issue side {side}, price {price}, {orderQty}, {bals[buy_ccy]}"
 
         if MAX_LIMITS[buy_ccy] - orderQty < 0:
-            return False
+            return False, reason
 
         if bals[buy_ccy] - orderQty < 0:
-            return False
+            return False, reason
 
 
         if MAX_LIMITS[sell_ccy] - (orderQty * price) < 0:
-            return False
+            return False, reason
 
         if bals[sell_ccy] - (orderQty * price) < 0:
-            return False
+            return False, reason
 
-        return True
+        return True, None
 
 
 
@@ -68,30 +75,31 @@ class TradeManager:
     orders = {}
     order_count = 0
 
-    TAKE_FEE = 0.015
+    TAKE_FEE = 0.020
     GIVE_FEE = 0.015
 
     def __init__(self, balances, socket):
         self.balances = balances
         self.socket = socket
         self.controls = [
-            TradeSizeControl(balances)
+            TradeSizeControl(balances),
+            MaxOrderControl(),
         ]
 
-    def place_order(self):
+    def place_order(self, trade_size, price, direction):
         order_id = str(uuid.uuid4())[:18] + 'GB'
 
         sell_ccy = 'GBP'
         buy_ccy = 'BTC'
 
-        trade_size = 0.001
-        side = "buy"
-        price = 6193.
+        # trade_size = 0.001
+        # side = "buy"
+        # price = 6193.
 
         order_details = {
-            'orderQty' : 0.001,
-            'side' : "buy",
-            'price' : 6193.,
+            'orderQty' : trade_size,
+            'side' : direction,
+            'price' : price,
             "symbol": "BTC-GBP",
             "clOrdID": order_id,
         }
@@ -114,11 +122,20 @@ class TradeManager:
         new_order_full = dict(limit_order_base)
         new_order_full.update(order_details)
 
-        if not any([c.validate(**new_order_full) for c in self.controls]):
-            return "Failed to trade"
+        new_order_full_validate = dict(new_order_full)
+        new_order_full_validate['order_count'] = self.order_count
+
+        # if not any([c.validate(**new_order_full_validate) for c in self.controls]):
+        #     return "Failed to trade"
+
+        for c in self.controls:
+            resp, reason = c.validate(**new_order_full_validate)
+            if not resp:
+                print(f"Order cannot be placed due to {reason}")
+                return
         import json
-        if(self.order_count < 1):
-            self.socket.send(json.dumps(new_order_full))
-            self.order_count+=1
-            self.orders[order_id] = new_order_full
-            print(f"Order with ID {order_id} was sent to the exchange")
+
+        self.socket.send(json.dumps(new_order_full))
+        self.order_count+=1
+        self.orders[order_id] = new_order_full
+        print(f"Order with ID {order_id} was sent to the exchange. Full details {order_details}")
