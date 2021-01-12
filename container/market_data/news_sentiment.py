@@ -21,7 +21,8 @@ class RequestWrapper:
         pass
 
     def start(self):
-        t = perpetualTimer(5, get_request)
+        # in seconds
+        t = perpetualTimer(60 * 2, get_request)
         t.start()
 
 

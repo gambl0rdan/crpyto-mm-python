@@ -1,5 +1,7 @@
 from enum import Enum
 import uuid
+import datetime
+import json
 
 class Order(Enum):
     MARKET = 0,
@@ -7,18 +9,23 @@ class Order(Enum):
     LIMIT = 2,
     LIMIT_STOP = 3
 
-MAX_NTL_BTC = 0.001
-MAX_NTL_GBP = 7.
-MAX_NTL_USD = 10.
+# MAX_NTL_BTC = 0.001
+# MAX_NTL_GBP = 20.
+# MAX_NTL_USD = 40.
+
+MAX_NTL_BTC = 0.01
+MAX_NTL_GBP = 20.
+MAX_NTL_USD = 400.
+
 
 BTC = 'BTC'
 GBP = 'GBP'
 USD = 'USD'
 
 MAX_LIMITS = {
-    BTC : MAX_NTL_BTC,
-    GBP : MAX_NTL_GBP,
-    USD : MAX_NTL_USD
+    BTC: MAX_NTL_BTC,
+    GBP: MAX_NTL_GBP,
+    USD: MAX_NTL_USD
 }
 
 #
@@ -31,7 +38,7 @@ class Control:
 
 
 class MaxOrderControl(Control):
-    MAX = 6
+    MAX = 50
 
     def validate(self, order_count, *args, **kwargs):
         if order_count > self.MAX:
@@ -43,8 +50,6 @@ class TradeSizeControl(Control):
         self.balances = balances
 
     def validate(self, side, price, symbol, orderQty, *args, **kwargs):
-
-
         bals = self.balances.get_balances()
 
         if side == 'buy':
@@ -53,18 +58,31 @@ class TradeSizeControl(Control):
             buy_ccy, sell_ccy = reversed(symbol.split('-'))
         reason = f"Trade size or balance issue side {side}, price {price}, {orderQty}, {bals[buy_ccy]}"
 
-        if MAX_LIMITS[buy_ccy] - orderQty < 0:
-            return False, reason
 
-        if bals[buy_ccy] - orderQty < 0:
-            return False, reason
+        # Why ever need to check amount to buy
+        # if bals[buy_ccy] - orderQty < 0:
+        #     return False, reason
 
+        if side == 'buy':
+            if bals[sell_ccy] - (orderQty * price) < 0:
+                return False, reason
 
-        if MAX_LIMITS[sell_ccy] - (orderQty * price) < 0:
-            return False, reason
+            if MAX_LIMITS[buy_ccy] - orderQty < 0:
+                return False, reason
 
-        if bals[sell_ccy] - (orderQty * price) < 0:
-            return False, reason
+            if MAX_LIMITS[sell_ccy] - (orderQty * price) < 0:
+                return False, reason
+
+        else:
+        # When selling
+            if bals[sell_ccy] - orderQty < 0:
+                return False, reason
+
+            if MAX_LIMITS[sell_ccy] - orderQty < 0:
+                return False, reason
+
+            if MAX_LIMITS[buy_ccy] - (orderQty * price) < 0:
+                return False, reason
 
         return True, None
 
@@ -72,7 +90,10 @@ class TradeSizeControl(Control):
 
 class TradeManager:
 
-    orders = {}
+    open_orders = {}
+    filled_orders = {}
+    cancelled_orders = {}
+
     order_count = 0
 
     TAKE_FEE = 0.020
@@ -86,11 +107,34 @@ class TradeManager:
             MaxOrderControl(),
         ]
 
-    def place_order(self, trade_size, price, direction):
-        order_id = str(uuid.uuid4())[:18] + 'GB'
 
-        sell_ccy = 'GBP'
-        buy_ccy = 'BTC'
+    def cancel_old_orders(self):
+        to_remove = []
+        for order_id, order in self.open_orders.items():
+            if order['datetime'] < datetime.datetime.now() - datetime.timedelta(minutes=1):
+
+                if order.get('orderID'):
+
+                    cancel_msg = {
+                          "action": "CancelOrderRequest",
+                          "channel": "trading",
+                          "orderID": order['orderID']
+                    }
+                    to_remove.append(order_id)
+                    self.socket.send(json.dumps(cancel_msg))
+
+        for order_id in to_remove:
+            self.cancelled_orders[order_id] = self.open_orders.pop(order_id)
+
+    def place_order(self, trade_size, price, direction, sym):
+
+        self.cancel_old_orders()
+
+
+
+        order_id = str(uuid.uuid4())[:18] + sym[-3:-1]
+
+        sell_ccy, buy_ccy = sym.split('-')
 
         # trade_size = 0.001
         # side = "buy"
@@ -100,7 +144,7 @@ class TradeManager:
             'orderQty' : trade_size,
             'side' : direction,
             'price' : price,
-            "symbol": "BTC-GBP",
+            "symbol": sym,
             "clOrdID": order_id,
         }
 
@@ -110,9 +154,10 @@ class TradeManager:
             "action": "NewOrderSingle",
             "channel": "trading",
 
-            # "symbol": "BTC-GBP",
             "ordType": "limit",
             "timeInForce": "GTC",
+            # "timeInForce": "GTD",
+
             # "side": "buy",
             # "orderQty": 0.001,
             # "price": price,
@@ -133,9 +178,10 @@ class TradeManager:
             if not resp:
                 print(f"Order cannot be placed due to {reason}")
                 return
-        import json
 
         self.socket.send(json.dumps(new_order_full))
         self.order_count+=1
-        self.orders[order_id] = new_order_full
+
+        new_order_full['datetime'] = datetime.datetime.now()
+        self.open_orders[order_id] = new_order_full
         print(f"Order with ID {order_id} was sent to the exchange. Full details {order_details}")

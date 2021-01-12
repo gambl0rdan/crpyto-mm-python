@@ -27,6 +27,9 @@ class BalanceManager:
         for row in exchange_msg['balances']:
             self.__currencies[row['currency']] = row['available']
 
+        if 'USD' not in self.__currencies:
+            self.__currencies['USD'] = 0.
+
     def get_balances(self):
         return dict(self.__currencies)
 

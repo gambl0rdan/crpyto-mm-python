@@ -24,8 +24,10 @@ last_prices = []
 sentiments = []
 
 config = {
-    'isTradingOn' : False,
-    'isSystemReady' : False
+    'isTradingOn': False,
+    'isSystemReady': False,
+    'strategy': None,
+    'debug' : False
 }
 
 ts_container = time_series.TimeSeriesContainer()
@@ -33,12 +35,13 @@ l2_cumulative = order_book.OrderBookParser.parse_from_exchange([], order_book_ty
 sentiment_req = news_sentiment.RequestWrapper()
 sentiment_req.start()
 
-strategy = strategies.VWAPMarketSentimentStrategy()
-
 def call_api(api, ccy='GBP',):
     balances = BalanceManager()
     trd_manager = TradeManager(balances, api)
+    strategy = strategies.VWAPMarketSentimentStrategy(sym='BTC-' + ccy)
+
     strategy.trade_manager = trd_manager
+    config['strategy'] = strategy
 
     def parse_response(resp):
         if not resp:
@@ -66,9 +69,9 @@ def call_api(api, ccy='GBP',):
             latest = balances.get_balances()
             if latest and config['isTradingOn']:
                 print(latest)
-                trd_manager.place_order()
+                trd_manager.place_order(config['strategy'].sym)
         elif json_resp['channel'] == 'trading':
-            parse_trading(json_resp)
+            parse_trading(json_resp, trd_manager)
 
     sub_hbs = {
         "action": "subscribe",
@@ -102,7 +105,8 @@ def call_api(api, ccy='GBP',):
 
     sub_trading = {
       "action": "subscribe",
-      "channel": "trading"
+      "channel": "trading",
+        "cancelOnDisconnect": True
     }
 
     # ws.send(str(sub_hbs))
@@ -111,17 +115,8 @@ def call_api(api, ccy='GBP',):
     api.send(str(sub_ticker))
     api.send(str(sub_balances))
     api.send(str(sub_trading))
-
-    # result = ws.recv()
-    # result = ws.recv()
     result = api.recv()
     print(result)
-    # result = api.recv()
-    # # print(result)
-    # result = api.recv()
-    # print(result)
-    # result = api.recv()
-    # print(result)
 
     handle_results = True
     while handle_results:
@@ -137,11 +132,11 @@ def parse_l2(resp):
     l2_cumulative.append_total_price_vol(side="ask", prices=l2_tick.asks)
 
     results = {
-        "Avg Px Bid" :  l2_cumulative.get_average_price_bid(),
-        "Avg Px Ask" : l2_cumulative.get_average_price_ask(),
-        "VWAP Bid" : l2_cumulative.get_volume_weighted_average_price_bid(),
-        "VWAP Ask" : l2_cumulative.get_volume_weighted_average_price_ask(),
-        "bid_1" : l2_tick.bids[-1][0] if len(l2_tick.bids) > 0 else None,
+        "Avg Px Bid":  l2_cumulative.get_average_price_bid(),
+        "Avg Px Ask": l2_cumulative.get_average_price_ask(),
+        "VWAP Bid": l2_cumulative.get_volume_weighted_average_price_bid(),
+        "VWAP Ask": l2_cumulative.get_volume_weighted_average_price_ask(),
+        "bid_1": l2_tick.bids[-1][0] if len(l2_tick.bids) > 0 else None,
         "bid_2": l2_tick.bids[-2][0] if len(l2_tick.bids) > 1 else None,
         "ask_1": l2_tick.asks[0][0] if len(l2_tick.asks) > 0 else None,
         "ask_2": l2_tick.asks[1][0] if len(l2_tick.asks) > 1 else None,
@@ -170,7 +165,7 @@ def parse_l2(resp):
             sig_resp = signal(price=price, bid=bid, ask=ask, init_sent=init_sent, cur_sent=cur_sent)
             if isinstance(sig_resp, price_signals.BreachResult):
                 sig_resp.print()
-                strategy.update(sig_resp, ts_container.ts_data)
+                config['strategy'].update(sig_resp, ts_container.ts_data)
 
 
     if config['isSystemReady'] and (len(vwap_bids) % 1) == 0:
@@ -185,7 +180,7 @@ def parse_l2(resp):
         # ?print(resp)
         ts_container.update(results)
 
-    if config['isSystemReady'] and (len(vwap_bids) % 50) == 0:
+    if config['isSystemReady'] and (len(vwap_bids) % 50) == 0 and config['debug']:
         ts_container.display()
 
 
@@ -213,10 +208,40 @@ def parse_ticker(resp):
         # vwap_bids.append(resp['last_trade_price'])
         # vwap_bids.append(resp['last_trade_price'])
 
-def parse_trading(resp):
+def parse_trading(resp, trd_manager):
     print(resp)
+
+    # {'seqnum': 3434, 'event': 'updated', 'channel': 'trading', 'orderID': '14604471840',
+    #  'clOrdID': '4c16657a-1564-49b6US', 'symbol': 'BTC-USD', 'side': 'sell', 'ordType': 'limit', 'orderQty': 0.0008,
+    #  'leavesQty': 0.0008, 'cumQty': 0.0, 'avgPx': 0.0, 'ordStatus': 'open', 'timeInForce': 'GTC', 'text': 'New order',
+    #  'execType': '0', 'execID': '3444646229', 'transactTime': '2021-01-10T19:59:29.779842Z', 'msgType': 8,
+    #  'lastPx': 0.0, 'lastShares': 0.0, 'tradeId': '0', 'fee': 1.176705954, 'price': 37239.0}
+
+    if resp.get('clOrdID'):
+        clOrdID = resp.get('clOrdID')
+        cl_order = trd_manager.open_orders.get(clOrdID)
+        if cl_order:
+            cl_order['orderID'] = resp.get('orderID')
+
+    # {'seqnum': 9716, 'event': 'updated', 'channel': 'trading', 'orderID': '14604785346',
+    #  'clOrdID': '807ddeac-3c94-402aUS', 'symbol': 'BTC-USD', 'side': 'sell', 'ordType': 'limit', 'orderQty': 0.0008,
+    #  'leavesQty': 0.0008, 'cumQty': 0.0, 'avgPx': 0.0, 'ordStatus': 'open', 'timeInForce': 'GTC', 'text': 'New order',
+    #  'execType': '0', 'execID': '3445273707', 'transactTime': '2021-01-10T20:27:09.107939Z', 'msgType': 8,
+    #  'lastPx': 0.0, 'lastShares': 0.0, 'tradeId': '0', 'fee': 1.176851661, 'price': 36173.0}
+
+    elif resp.get('orders'):
+        for order in resp.get('orders'):
+            clOrdID = order.get('clOrdID')
+            orderID = order.get('orderID')
+
+            if clOrdID:
+                cl_order = trd_manager.open_orders.get(clOrdID)
+                if cl_order:
+                    cl_order['orderID'] = orderID
+
     print("###########EOM###########")
 
 if __name__ == "__main__":
     api = connect_blockchain.connect_to_api_defaults()
-    call_api(api, ccy='GBP')
+
+    call_api(api, ccy='USD')
