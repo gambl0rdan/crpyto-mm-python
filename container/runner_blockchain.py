@@ -1,5 +1,5 @@
 from websocket import create_connection
-import websockets
+#import websockets
 # from market_data.order_book import OrderBook, OrderBookParser
 
 import connect_blockchain
@@ -67,6 +67,7 @@ def call_api(api, ccy='GBP',):
         elif json_resp['channel'] == 'balances':
             balances.update_balances(json_resp)
             latest = balances.get_balances()
+            print(f'{datetime.datetime.now()} {json_resp}')
             if latest and config['isTradingOn']:
                 print(latest)
                 trd_manager.place_order(config['strategy'].sym)
@@ -164,7 +165,8 @@ def parse_l2(resp):
 
             sig_resp = signal(price=price, bid=bid, ask=ask, init_sent=init_sent, cur_sent=cur_sent)
             if isinstance(sig_resp, price_signals.BreachResult):
-                sig_resp.print()
+                if ((len(vwap_bids) % 200) == 0) or config['debug']:
+                    sig_resp.print()
                 config['strategy'].update(sig_resp, ts_container.ts_data)
 
 
@@ -179,10 +181,31 @@ def parse_l2(resp):
         results['datetime'] = datetime.datetime.now()
         # ?print(resp)
         ts_container.update(results)
+        if len(last_prices) > 1000:
+            print(f'{datetime.datetime.now()} Truncating last_prices')
+            for x in range(500):
+                last_prices.pop(0)
+
+        if len(vwap_bids) > 1000:
+            print(f'{datetime.datetime.now()} Truncating vwap prices')
+            #print(len(ts_container))
+            for x in range(500):
+                vwap_bids.pop(0)
+                vwap_asks.pop(0)
+
 
     if config['isSystemReady'] and (len(vwap_bids) % 50) == 0 and config['debug']:
         ts_container.display()
 
+    #if config['isSystemReady'] and len(vwap_bids) > 1000:
+    #    vwap_bids = vwap_bids[500:]
+    #    vwap_asks = vwap_asks[500:]
+    #    print(f'Truncating vwap_bids to={len(vwap_bids)} and vwap_asks to {len(vwap_asks)}')
+    
+    #if config['isSystemReady'] and last_prices and len(last_prices) > 1000:
+        
+     #   last_prices = last_prices[500:]
+        #print(f'Truncating last_prices to length={len(last_prices)}')
 
 def parse_prices(resp):
     # timestamp, open, high, low, close, volume
@@ -205,11 +228,9 @@ def parse_ticker(resp):
             config['isSystemReady'] = True
             print('##### System is ready for price and market data######')
         last_prices.append(resp['last_trade_price'])
-        # vwap_bids.append(resp['last_trade_price'])
-        # vwap_bids.append(resp['last_trade_price'])
 
 def parse_trading(resp, trd_manager):
-    print(resp)
+    print(datetime.datetime.now(), resp)
 
     # {'seqnum': 3434, 'event': 'updated', 'channel': 'trading', 'orderID': '14604471840',
     #  'clOrdID': '4c16657a-1564-49b6US', 'symbol': 'BTC-USD', 'side': 'sell', 'ordType': 'limit', 'orderQty': 0.0008,
@@ -220,8 +241,10 @@ def parse_trading(resp, trd_manager):
     if resp.get('clOrdID'):
         clOrdID = resp.get('clOrdID')
         cl_order = trd_manager.open_orders.get(clOrdID)
+        orderID = resp.get('orderID')
+        print(f'{datetime.datetime.now()} adding server orderID: {orderID} for client orderID: {clOrdID}')
         if cl_order:
-            cl_order['orderID'] = resp.get('orderID')
+            cl_order['orderID'] = orderID
 
     # {'seqnum': 9716, 'event': 'updated', 'channel': 'trading', 'orderID': '14604785346',
     #  'clOrdID': '807ddeac-3c94-402aUS', 'symbol': 'BTC-USD', 'side': 'sell', 'ordType': 'limit', 'orderQty': 0.0008,
@@ -233,7 +256,7 @@ def parse_trading(resp, trd_manager):
         for order in resp.get('orders'):
             clOrdID = order.get('clOrdID')
             orderID = order.get('orderID')
-
+            print(f'{datetime.datetime.now()} adding server orderID: {orderID} for client orderID: {clOrdID}')
             if clOrdID:
                 cl_order = trd_manager.open_orders.get(clOrdID)
                 if cl_order:

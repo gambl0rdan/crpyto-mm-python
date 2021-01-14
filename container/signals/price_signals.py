@@ -1,3 +1,4 @@
+import datetime
 class Direction:
     BUY = "buy"
     SELL = "sell"
@@ -10,7 +11,7 @@ class BreachResult:
         self.leverage = leverage
 
     def print(self):
-        print(f'{self.method} + {self.result}')
+        print(f'[{datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")} [{self.method}: {self.result}] [indicator={self.indicator}] [leverage={self.leverage}]')
 
 class NoResult:
     def __init__(self, result):
@@ -42,7 +43,7 @@ def price_less_than_vwap_bid(price, bid=None, *args, **kwargs):
     return BreachResult(res, price_less_than_vwap_bid.__name__, Direction.SELL, leverage) if res > 0 and bid else NoResult(res)
 
 def price_greater_than_vwap_ask(price, ask=None, *args, **kwargs):
-    spread_factor = 50 # add a spread even wider than VWAP px to be less sensitive
+    spread_factor = 25 # add a spread even wider than VWAP px to be less sensitive
     res = price - ask - spread_factor
     leverage = get_leverage_factor(res, (200, 100, 50))
     return BreachResult(res, price_greater_than_vwap_ask.__name__, Direction.BUY, leverage) if res > 0 and ask else NoResult(res)
