@@ -19,7 +19,7 @@ class TimeSeriesContainer:
         self.ticks+=1
 
         if (self.ticks % 1000) == 0:
-            self.export()        
+            #self.export()        
             self.ts_data = self.ts_data[0:0]
     
     def display(self):
