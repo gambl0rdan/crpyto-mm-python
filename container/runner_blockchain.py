@@ -17,17 +17,18 @@ from model import strategies
 from trade.balance_manager import BalanceManager
 from trade.trade_manager import TradeManager
 
-
-vwap_bids = []
-vwap_asks = []
-last_prices = []
-sentiments = []
-
 config = {
     'isTradingOn': False,
     'isSystemReady': False,
     'strategy': None,
     'debug' : False
+}
+
+market_data = {
+    'vwap_bids' : [],
+    'vwap_asks' : [],
+    'last_prices' : [],
+    'sentiments' : []
 }
 
 ts_container = time_series.TimeSeriesContainer()
@@ -144,36 +145,35 @@ def parse_l2(resp):
     }
 
     if results["VWAP Bid"]:
-        vwap_bids.append(results["VWAP Bid"])
+        market_data['vwap_bids'].append(results["VWAP Bid"])
     else:
-        vwap_bids.append(vwap_bids[-1])
+        market_data['vwap_bids'].append(market_data['vwap_bids'][-1])
 
     if results["VWAP Ask"]:
-        vwap_asks.append(results["VWAP Ask"])
+        market_data['vwap_asks'].append(results["VWAP Ask"])
     else:
-        vwap_asks.append(vwap_asks[-1])
+        market_data['vwap_asks'].append(market_data['vwap_asks'][-1])
 
     if config['isSystemReady']:
-
         init_sent = sentiment_req.data[0]['average'] if sentiment_req.data else None
         cur_sent = sentiment_req.data[-1]['average'] if sentiment_req.data else None
 
         for signal in price_signals.SIGNALS:
-            bid = vwap_bids[-1]
-            ask = vwap_asks[-1]
-            price = last_prices[-1]
+            bid = market_data['vwap_bids'][-1]
+            ask = market_data['vwap_asks'][-1]
+            price = market_data['last_prices'][-1]
 
             sig_resp = signal(price=price, bid=bid, ask=ask, init_sent=init_sent, cur_sent=cur_sent)
             if isinstance(sig_resp, price_signals.BreachResult):
-                if ((len(vwap_bids) % 200) == 0) or config['debug']:
+                if ((len(market_data['vwap_bids']) % 200) == 0) or config['debug']:
                     sig_resp.print()
                 config['strategy'].update(sig_resp, ts_container.ts_data)
 
 
-    if config['isSystemReady'] and (len(vwap_bids) % 1) == 0:
-        last_bid = vwap_bids[-1]
-        last_ask = vwap_asks[-1]
-        last_price = last_prices[-1]
+    if config['isSystemReady'] and (len(market_data['vwap_bids']) % 1) == 0:
+        last_bid = market_data['vwap_bids'][-1]
+        last_ask = market_data['vwap_asks'][-1]
+        last_price = market_data['last_prices'][-1]
 
         additional = {'last price' : last_price,'VWAP Px Diff Bid' : last_price - last_bid, 'VWAP Px Diff Ask' : last_ask - last_price, }
         results.update(additional)
@@ -181,20 +181,29 @@ def parse_l2(resp):
         results['datetime'] = datetime.datetime.now()
         # ?print(resp)
         ts_container.update(results)
-        if len(last_prices) > 1000:
+        if len(market_data['last_prices']) > 1000:
+
+
+
+
+
             print(f'{datetime.datetime.now()} Truncating last_prices')
             for x in range(500):
-                last_prices.pop(0)
+                market_data['last_prices'].pop(0)
 
-        if len(vwap_bids) > 1000:
+        if len(market_data['vwap_bids']) > 1000:
+
             print(f'{datetime.datetime.now()} Truncating vwap prices')
             #print(len(ts_container))
-            for x in range(500):
-                vwap_bids.pop(0)
-                vwap_asks.pop(0)
+            market_data['vwap_bids'] = market_data['vwap_bids'][-2:-1]
+            market_data['vwap_asks'] = market_data['vwap_asks'][-2:-1]
+
+            # for x in range(500):
+            #     market_data['vwap_bids'].pop(0)
+            #     market_data['vwap_asks'].pop(0)
 
 
-    if config['isSystemReady'] and (len(vwap_bids) % 50) == 0 and config['debug']:
+    if config['isSystemReady'] and (len(market_data['vwap_bids']) % 50) == 0 and config['debug']:
         ts_container.display()
 
     #if config['isSystemReady'] and len(vwap_bids) > 1000:
@@ -227,7 +236,7 @@ def parse_ticker(resp):
         if not config['isSystemReady']:
             config['isSystemReady'] = True
             print('##### System is ready for price and market data######')
-        last_prices.append(resp['last_trade_price'])
+        market_data['last_prices'].append(resp['last_trade_price'])
 
 def parse_trading(resp, trd_manager):
     print(datetime.datetime.now(), resp)
@@ -238,6 +247,16 @@ def parse_trading(resp, trd_manager):
     #  'execType': '0', 'execID': '3444646229', 'transactTime': '2021-01-10T19:59:29.779842Z', 'msgType': 8,
     #  'lastPx': 0.0, 'lastShares': 0.0, 'tradeId': '0', 'fee': 1.176705954, 'price': 37239.0}
 
+    {'seqnum': 9799, 'event': 'updated', 'channel': 'trading', 'orderID': '14653396099',
+     'clOrdID': '133068ef6efe4732webd', 'symbol': 'BTC-USD', 'side': 'buy', 'ordType': 'market', 'orderQty': 0.01229694,
+     'leavesQty': 0.0, 'cumQty': 0.01229694, 'avgPx': 39330.52, 'ordStatus': 'filled', 'timeInForce': 'GTC',
+     'text': 'Fill', 'execType': 'F', 'execID': '3542341304', 'transactTime': '2021-01-14T20:57:37.191862Z',
+     'msgType': 8, 'lastPx': 39330.52, 'lastShares': 0.01229694, 'tradeId': '12887550018', 'fee': 1.06,
+     'liquidityIndicator': 'R'}
+
+    if resp['event'] != 'snapshot':
+        trd_manager.update_order(resp)
+
     if resp.get('clOrdID'):
         clOrdID = resp.get('clOrdID')
         cl_order = trd_manager.open_orders.get(clOrdID)
@@ -245,12 +264,6 @@ def parse_trading(resp, trd_manager):
         print(f'{datetime.datetime.now()} adding server orderID: {orderID} for client orderID: {clOrdID}')
         if cl_order:
             cl_order['orderID'] = orderID
-
-    # {'seqnum': 9716, 'event': 'updated', 'channel': 'trading', 'orderID': '14604785346',
-    #  'clOrdID': '807ddeac-3c94-402aUS', 'symbol': 'BTC-USD', 'side': 'sell', 'ordType': 'limit', 'orderQty': 0.0008,
-    #  'leavesQty': 0.0008, 'cumQty': 0.0, 'avgPx': 0.0, 'ordStatus': 'open', 'timeInForce': 'GTC', 'text': 'New order',
-    #  'execType': '0', 'execID': '3445273707', 'transactTime': '2021-01-10T20:27:09.107939Z', 'msgType': 8,
-    #  'lastPx': 0.0, 'lastShares': 0.0, 'tradeId': '0', 'fee': 1.176851661, 'price': 36173.0}
 
     elif resp.get('orders'):
         for order in resp.get('orders'):

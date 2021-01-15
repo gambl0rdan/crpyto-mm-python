@@ -36,6 +36,13 @@ class Control:
     def validate(self, *args, **kwargs):
         raise NotImplementedError()
 
+class RecentOpposingTradeControl(Control):
+    MAX = 50
+
+    def validate(self, last_order, *args, **kwargs):
+        if order_count > self.MAX:
+            return False, f"Order count {order_count} greater than max {self.MAX}"
+        return True, None
 
 class MaxOrderControl(Control):
     MAX = 50
@@ -93,7 +100,6 @@ class TradeManager:
     open_orders = {}
     filled_orders = {}
     cancelled_orders = {}
-
     order_count = 0
 
     TAKE_FEE = 0.020
@@ -106,7 +112,7 @@ class TradeManager:
             TradeSizeControl(balances),
             MaxOrderControl(),
         ]
-
+        self.last_order = None
 
     def cancel_old_orders(self):
         to_remove = []
@@ -124,14 +130,27 @@ class TradeManager:
                     self.socket.send(json.dumps(cancel_msg))
 
         for order_id in to_remove:
+            print(f'{datetime.datetime.now()} cancelling order {order_id}')
             self.cancelled_orders[order_id] = self.open_orders.pop(order_id)
 
-    def place_order(self, trade_size, price, direction, sym):
+    def update_order(self, order_details):
+        {'seqnum': 9799, 'event': 'updated', 'channel': 'trading', 'orderID': '14653396099',
+         'clOrdID': '133068ef6efe4732webd', 'symbol': 'BTC-USD', 'side': 'buy', 'ordType': 'market',
+         'orderQty': 0.01229694, 'leavesQty': 0.0, 'cumQty': 0.01229694, 'avgPx': 39330.52, 'ordStatus': 'filled',
+         'timeInForce': 'GTC', 'text': 'Fill', 'execType': 'F', 'execID': '3542341304',
+         'transactTime': '2021-01-14T20:57:37.191862Z', 'msgType': 8, 'lastPx': 39330.52, 'lastShares': 0.01229694,
+         'tradeId': '12887550018', 'fee': 1.06, 'liquidityIndicator': 'R'}
+        ord_status = order_details.get('ordStatus')
+        cl_order_id = order_details.get('clOrdID')
+        if 'filled' == ord_status:
+            if cl_order_id and cl_order_id in self.open_orders:
+                print(f'{datetime.datetime.now()} updating filled order {cl_order_id}')
+                self.filled_orders[cl_order_id] = self.open_orders.pop(cl_order_id)
+                self.filled_orders[cl_order_id].update(order_details)
+                self.last_order = self.filled_orders[cl_order_id]
 
+    def place_order(self, trade_size, price, direction, leverage, sym):
         self.cancel_old_orders()
-
-
-
         order_id = str(uuid.uuid4())[:18] + sym[-3:-1]
 
         sell_ccy, buy_ccy = sym.split('-')
@@ -172,6 +191,30 @@ class TradeManager:
 
         # if not any([c.validate(**new_order_full_validate) for c in self.controls]):
         #     return "Failed to trade"
+
+        # 'side': 'buy'
+        # 'lastPx': 39330.52
+        # 'fee': 1.06
+        if self.last_order:
+            if 'filled' == self.last_order.get('ordStatus') and leverage == 1:
+                if new_order_full_validate['side'] != self.last_order['side']:
+                    dollar_amt_last = self.last_order['lastPx'] * self.last_order['orderQty']
+                    dollar_amt_new = new_order_full_validate['price'] * new_order_full_validate['orderQty']
+                    fee_last = self.last_order['fee']
+                    fee_new = dollar_amt_new * 0.22 * 0.01
+                    if (dollar_amt_last + fee_last) - (dollar_amt_new + fee_new) < 0:
+                        print(f"Order cannot be placed due to [new amt={dollar_amt_new + fee_last}] > [last trd={dollar_amt_last + fee_new}]")
+                        return
+        # 'orderQty': 0.01229694, 'leavesQty': 0.0, 'cumQty': 0.01229694, 'avgPx': 39330.52, 'ordStatus': 'filled',
+        # 'timeInForce': 'GTC', 'text': 'Fill', 'execType': 'F', 'execID': '3542341304',
+        # 'transactTime': '2021-01-14T20:57:37.191862Z', 'msgType': 8, , 'lastShares': 0.01229694,
+        # 'tradeId': '12887550018', 'fee': 1.06,
+        {'seqnum': 9799, 'event': 'updated', 'channel': 'trading', 'orderID': '14653396099',
+         'clOrdID': '133068ef6efe4732webd', 'symbol': 'BTC-USD', 'side': 'buy', 'ordType': 'market',
+         'orderQty': 0.01229694, 'leavesQty': 0.0, 'cumQty': 0.01229694, 'avgPx': 39330.52, 'ordStatus': 'filled',
+         'timeInForce': 'GTC', 'text': 'Fill', 'execType': 'F', 'execID': '3542341304',
+         'transactTime': '2021-01-14T20:57:37.191862Z', 'msgType': 8, 'lastPx': 39330.52, 'lastShares': 0.01229694,
+         'tradeId': '12887550018', 'fee': 1.06, 'liquidityIndicator': 'R'}
 
         for c in self.controls:
             resp, reason = c.validate(**new_order_full_validate)

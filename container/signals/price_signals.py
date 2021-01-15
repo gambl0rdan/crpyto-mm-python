@@ -66,9 +66,13 @@ def sentiment_move_10_down_daily(init_sent, cur_sent, *args, **kwargs):
     leverage = get_leverage_factor(abs(res), (100, 50, 20))
     return BreachResult(abs(res), sentiment_move_10_down_daily.__name__, Direction.SELL, leverage) if res < -10 else NoResult(res)
 
+def test_always_breach(*args, **kwargs):
+    return BreachResult(50., test_always_breach.__name__, Direction.SELL, 1)
+
 
 SIGNALS = [
-# price_abs_less_than_target,
+# test_always_breach,
+price_abs_less_than_target,
     price_less_than_vwap_bid,
     price_greater_than_vwap_ask,
     sentiment_move_10_up_daily,
