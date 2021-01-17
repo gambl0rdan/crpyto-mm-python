@@ -12,6 +12,7 @@ import time
 from market_data import order_book
 from market_data import time_series
 from market_data import news_sentiment
+from market_data import firebase_manager
 from signals import price_signals
 from model import strategies
 from trade.balance_manager import BalanceManager
@@ -31,7 +32,8 @@ market_data = {
     'sentiments' : []
 }
 
-ts_container = time_series.TimeSeriesContainer()
+firebase_conn = firebase_manager.connect_to_firebase()
+ts_container = time_series.TimeSeriesContainer(firebase_conn)
 l2_cumulative = order_book.OrderBookParser.parse_from_exchange([], order_book_type='aggregate', exchange="blockchain")
 sentiment_req = news_sentiment.RequestWrapper()
 sentiment_req.start()
@@ -66,12 +68,7 @@ def call_api(api, ccy='GBP',):
         elif json_resp['channel'] == 'ticker':
             parse_ticker(json_resp)
         elif json_resp['channel'] == 'balances':
-            balances.update_balances(json_resp)
-            latest = balances.get_balances()
-            print(f'{datetime.datetime.now()} {json_resp}')
-            if latest and config['isTradingOn']:
-                print(latest)
-                trd_manager.place_order(config['strategy'].sym)
+            parse_balance(json_resp, balances)
         elif json_resp['channel'] == 'trading':
             parse_trading(json_resp, trd_manager)
 
@@ -126,6 +123,17 @@ def call_api(api, ccy='GBP',):
         parse_response(resp)
 
     api.close()
+
+def parse_balance(resp, balances):
+    balances.update_balances(resp)
+
+    latest = balances.get_balances()
+    print(f'{datetime.datetime.now()} {resp}')
+    if latest and config['isTradingOn']:
+        print(latest)
+        # trd_manager.place_order(config['strategy'].sym)
+
+    ts_container.update_balance(resp)
 
 def parse_l2(resp):
     l2_tick = order_book.OrderBookParser.parse_from_exchange(resp, exchange="blockchain", max=10)
@@ -237,6 +245,7 @@ def parse_ticker(resp):
             config['isSystemReady'] = True
             print('##### System is ready for price and market data######')
         market_data['last_prices'].append(resp['last_trade_price'])
+        ts_container.update_ticker(resp)
 
 def parse_trading(resp, trd_manager):
     print(datetime.datetime.now(), resp)
@@ -255,7 +264,7 @@ def parse_trading(resp, trd_manager):
      'liquidityIndicator': 'R'}
 
     if resp['event'] != 'snapshot':
-        trd_manager.update_order(resp)
+        trd_manager.update_order(resp, ts_container)
 
     if resp.get('clOrdID'):
         clOrdID = resp.get('clOrdID')

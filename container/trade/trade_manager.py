@@ -133,7 +133,7 @@ class TradeManager:
             print(f'{datetime.datetime.now()} cancelling order {order_id}')
             self.cancelled_orders[order_id] = self.open_orders.pop(order_id)
 
-    def update_order(self, order_details):
+    def update_order(self, order_details, ts_container):
         {'seqnum': 9799, 'event': 'updated', 'channel': 'trading', 'orderID': '14653396099',
          'clOrdID': '133068ef6efe4732webd', 'symbol': 'BTC-USD', 'side': 'buy', 'ordType': 'market',
          'orderQty': 0.01229694, 'leavesQty': 0.0, 'cumQty': 0.01229694, 'avgPx': 39330.52, 'ordStatus': 'filled',
@@ -148,6 +148,7 @@ class TradeManager:
                 self.filled_orders[cl_order_id] = self.open_orders.pop(cl_order_id)
                 self.filled_orders[cl_order_id].update(order_details)
                 self.last_order = self.filled_orders[cl_order_id]
+                ts_container.update_order(self.last_order)
 
     def place_order(self, trade_size, price, direction, leverage, sym):
         self.cancel_old_orders()
@@ -197,12 +198,16 @@ class TradeManager:
         # 'fee': 1.06
         if self.last_order:
             if 'filled' == self.last_order.get('ordStatus') and leverage == 1:
-                if new_order_full_validate['side'] != self.last_order['side']:
+                new_side = new_order_full_validate['side']
+                last_side = self.last_order['side']
+                if new_side != last_side:
                     dollar_amt_last = self.last_order['lastPx'] * self.last_order['orderQty']
                     dollar_amt_new = new_order_full_validate['price'] * new_order_full_validate['orderQty']
                     fee_last = self.last_order['fee']
                     fee_new = dollar_amt_new * 0.22 * 0.01
-                    if (dollar_amt_last + fee_last) - (dollar_amt_new + fee_new) < 0:
+
+                    new_less_than_last = (dollar_amt_last + fee_last) - (dollar_amt_new + fee_new) < 0
+                    if (new_less_than_last and new_side == 'sell' and last_side == 'buy') or (not new_less_than_last and new_side == 'buy' and last_side == 'sell'):
                         print(f"Order cannot be placed due to [new amt={dollar_amt_new + fee_last}] > [last trd={dollar_amt_last + fee_new}]")
                         return
         # 'orderQty': 0.01229694, 'leavesQty': 0.0, 'cumQty': 0.01229694, 'avgPx': 39330.52, 'ordStatus': 'filled',
