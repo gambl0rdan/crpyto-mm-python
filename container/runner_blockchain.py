@@ -40,7 +40,7 @@ sentiment_req.start()
 
 def call_api(api, ccy='GBP',):
     balances = BalanceManager()
-    trd_manager = TradeManager(balances, api)
+    trd_manager = TradeManager(balances, api, ts_container)
     strategy = strategies.VWAPMarketSentimentStrategy(sym='BTC-' + ccy)
 
     strategy.trade_manager = trd_manager
@@ -123,6 +123,7 @@ def call_api(api, ccy='GBP',):
         parse_response(resp)
 
     api.close()
+
 
 def parse_balance(resp, balances):
     balances.update_balances(resp)
@@ -264,7 +265,7 @@ def parse_trading(resp, trd_manager):
      'liquidityIndicator': 'R'}
 
     if resp['event'] != 'snapshot':
-        trd_manager.update_order(resp, ts_container)
+        trd_manager.update_order(resp)
 
     if resp.get('clOrdID'):
         clOrdID = resp.get('clOrdID')

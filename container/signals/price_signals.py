@@ -37,7 +37,7 @@ def price_abs_less_than_target(price, *args, **kwargs):
 
 
 def price_less_than_vwap_bid(price, bid=None, *args, **kwargs):
-    spread_factor = 50 # add a spread even wider than VWAP px to be less sensitive
+    spread_factor = 75  # add a spread even wider than VWAP px to be less sensitive
     res = bid - price - spread_factor
     leverage = get_leverage_factor(res, (200, 100, 50))
     return BreachResult(res, price_less_than_vwap_bid.__name__, Direction.SELL, leverage) if res > 0 and bid else NoResult(res)

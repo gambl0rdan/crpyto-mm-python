@@ -11,7 +11,8 @@ class VWAPMarketSentimentStrategy:
         self.min_order_cooldown_millis = 5 * 60_000.
         self.order_cooldown_last = datetime.datetime(1990,1,1,1,1,1)
         self.trade_manager = None
-        self.base_amt = 0.0024
+        # self.base_amt = 0.0024
+        self.base_amt = 0.0032
 
     def update(self, signal, last_order_tick):
         self.breaches.append(signal)

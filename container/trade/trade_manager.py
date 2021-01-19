@@ -105,13 +105,14 @@ class TradeManager:
     TAKE_FEE = 0.020
     GIVE_FEE = 0.015
 
-    def __init__(self, balances, socket):
+    def __init__(self, balances, socket, ts_container):
         self.balances = balances
         self.socket = socket
         self.controls = [
             TradeSizeControl(balances),
             MaxOrderControl(),
         ]
+        self.ts_container = ts_container
         self.last_order = None
 
     def cancel_old_orders(self):
@@ -133,7 +134,7 @@ class TradeManager:
             print(f'{datetime.datetime.now()} cancelling order {order_id}')
             self.cancelled_orders[order_id] = self.open_orders.pop(order_id)
 
-    def update_order(self, order_details, ts_container):
+    def update_order(self, order_details):
         {'seqnum': 9799, 'event': 'updated', 'channel': 'trading', 'orderID': '14653396099',
          'clOrdID': '133068ef6efe4732webd', 'symbol': 'BTC-USD', 'side': 'buy', 'ordType': 'market',
          'orderQty': 0.01229694, 'leavesQty': 0.0, 'cumQty': 0.01229694, 'avgPx': 39330.52, 'ordStatus': 'filled',
@@ -148,7 +149,7 @@ class TradeManager:
                 self.filled_orders[cl_order_id] = self.open_orders.pop(cl_order_id)
                 self.filled_orders[cl_order_id].update(order_details)
                 self.last_order = self.filled_orders[cl_order_id]
-                ts_container.update_order(self.last_order)
+                self.ts_container.update_order(self.last_order)
 
     def place_order(self, trade_size, price, direction, leverage, sym):
         self.cancel_old_orders()
@@ -200,14 +201,32 @@ class TradeManager:
             if 'filled' == self.last_order.get('ordStatus') and leverage == 1:
                 new_side = new_order_full_validate['side']
                 last_side = self.last_order['side']
-                if new_side != last_side:
-                    dollar_amt_last = self.last_order['lastPx'] * self.last_order['orderQty']
-                    dollar_amt_new = new_order_full_validate['price'] * new_order_full_validate['orderQty']
-                    fee_last = self.last_order['fee']
-                    fee_new = dollar_amt_new * 0.22 * 0.01
 
-                    new_less_than_last = (dollar_amt_last + fee_last) - (dollar_amt_new + fee_new) < 0
-                    if (new_less_than_last and new_side == 'sell' and last_side == 'buy') or (not new_less_than_last and new_side == 'buy' and last_side == 'sell'):
+                dollar_amt_last = self.last_order['lastPx'] * new_order_full_validate['orderQty']
+                dollar_amt_new = new_order_full_validate['price'] * new_order_full_validate['orderQty']
+                fee_last = self.last_order['fee']
+                fee_new = dollar_amt_new * 0.22 * 0.01
+                new_less_than_last = ((dollar_amt_last + fee_last) - (dollar_amt_new + fee_new)) < 0
+
+                alert = {'old' :self.last_order , 'new' : new_order_full_validate}
+
+                alert['new_side'] = new_side
+
+                alert['last_side'] = last_side
+
+                alert['dollar_amt_last'] = dollar_amt_last
+                alert['dollar_amt_new'] = dollar_amt_new
+                alert['fee_last'] = fee_last
+                alert['fee_new'] = fee_new
+                alert['new_less_than_last'] = new_less_than_last
+                alert['dollar_amt_last'] = dollar_amt_last
+
+
+
+
+                if new_side != last_side:
+                    self.ts_container.update_alert(alert)
+                    if (new_less_than_last and new_side == 'sell') or (not new_less_than_last and new_side == 'buy'):
                         print(f"Order cannot be placed due to [new amt={dollar_amt_new + fee_last}] > [last trd={dollar_amt_last + fee_new}]")
                         return
         # 'orderQty': 0.01229694, 'leavesQty': 0.0, 'cumQty': 0.01229694, 'avgPx': 39330.52, 'ordStatus': 'filled',

@@ -13,14 +13,14 @@ class TimeSeriesContainer:
     def __init__(self, firebase_conn):
         self.ts_data = pd.DataFrame({}, columns = self.COLS)
         self.firebase_conn = firebase_conn
-        self.enabled = False
+        self.enabled = True
 
     def update(self, row):
         self.ts_data = self.ts_data.append(row, True)
         self.ts_data = self.ts_data.set_index('datetime')
         self.ticks+=1
-        if (self.ticks % 100) == 0:
-            # self.export_to_firebase(self.ts_data.to_dict('records'), 'marketdata', 'l2')
+        if (self.ticks % 4000) == 0:
+            self.export_to_firebase(self.ts_data[-2:-1].to_dict('records'), 'marketdata', 'l2')
             self.ts_data = self.ts_data[0:0]
 
     def update_order(self, row):
@@ -31,6 +31,13 @@ class TimeSeriesContainer:
 
     def update_balance(self, row):
         self.export_to_firebase([row], 'position', 'balance')
+
+    def update_alert(self, row):
+
+        try:
+            self.export_to_firebase([row], 'alerts', 'main')
+        except Exception as ex:
+            print(ex)
 
     def display(self):
         # print(['%s=%.2f' % (k, v) for (k, v) in results.items()])
