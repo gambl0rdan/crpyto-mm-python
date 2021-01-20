@@ -174,10 +174,10 @@ class TradeManager:
         limit_order_base = {
             "action": "NewOrderSingle",
             "channel": "trading",
-
             "ordType": "limit",
-            "timeInForce": "GTC",
-            # "timeInForce": "GTD",
+            # "ordType": "market",
+            # "timeInForce": "GTC",
+            "timeInForce": "IOC",
 
             # "side": "buy",
             # "orderQty": 0.001,

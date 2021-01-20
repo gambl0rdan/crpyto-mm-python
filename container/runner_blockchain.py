@@ -38,6 +38,7 @@ l2_cumulative = order_book.OrderBookParser.parse_from_exchange([], order_book_ty
 sentiment_req = news_sentiment.RequestWrapper()
 sentiment_req.start()
 
+
 def call_api(api, ccy='GBP',):
     balances = BalanceManager()
     trd_manager = TradeManager(balances, api, ts_container)
@@ -45,11 +46,12 @@ def call_api(api, ccy='GBP',):
 
     strategy.trade_manager = trd_manager
     config['strategy'] = strategy
-
+    msgs =[0]
     def parse_response(resp):
         if not resp:
             return False
 
+        msgs[0]+=1
 
         json_resp = json.loads(resp)
         if "subscribe" == json_resp.get("action"):
@@ -64,7 +66,7 @@ def call_api(api, ccy='GBP',):
             pass
             # parse_prices(json_resp)
         elif json_resp['channel'] == 'l2':
-            parse_l2(json_resp)
+            parse_l2(json_resp, msgs[0])
         elif json_resp['channel'] == 'ticker':
             parse_ticker(json_resp)
         elif json_resp['channel'] == 'balances':
@@ -136,7 +138,12 @@ def parse_balance(resp, balances):
 
     ts_container.update_balance(resp)
 
-def parse_l2(resp):
+def parse_l2(resp, counter):
+
+    if (counter % 25) != 1:
+        return
+
+
     l2_tick = order_book.OrderBookParser.parse_from_exchange(resp, exchange="blockchain", max=10)
 
     l2_cumulative.append_total_price_vol(side="bid", prices=l2_tick.bids)
